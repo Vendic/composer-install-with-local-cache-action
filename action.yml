@@ -1,0 +1,60 @@
+name: 'Composer install action'
+description: 'Composer install with cache'
+runs:
+  using: "composite"
+  steps:
+    - name: Create vendor cache folder
+      run: |
+        if [ ! -d "/home/composer-cache/vendor" ]
+        then
+          mkdir /home/composer-cache/vendor
+        fi
+      shell: bash
+
+    - name: Check for cache hit/miss
+      run: |
+        hash="${{ hashFiles('composer.json', 'composer.lock') }}"
+        echo "COMPOSER_HASH=$hash" >> $GITHUB_ENV
+        
+        if [ ! -d "/home/composer-cache/vendor/$hash" ]
+        then
+          echo "Cache MISS!"
+          echo "COMPOSER_CACHE_MISS=true" >> $GITHUB_ENV
+        
+          composer install
+          cp -r vendor /home/composer-cache/vendor/$hash
+        else
+          echo "Cache HIT!"
+          echo "COMPOSER_CACHE_HIT=true" >> $GITHUB_ENV
+        
+          # Remove existing vendor folder if it exists
+          if [ -d "/home/composer-cache/vendor/$hash/vendor" ]
+          then
+            rm -rf vendor
+          fi
+        
+          cp -r /home/composer-cache/vendor/$hash vendor
+          composer install
+        fi
+
+    - name: Restore cache
+      if: env.COMPOSER_CACHE_HIT
+      env:
+        hash: ${{ env.COMPOSER_HASH }}
+      run: |
+        # Remove existing vendor folder if it exists
+        if [ -d "/home/composer-cache/vendor/$hash/vendor" ]
+        then
+          rm -rf vendor
+        fi
+        
+        cp -r /home/composer-cache/vendor/$hash vendor
+
+    - name: Composer install
+      run: |
+        composer install
+
+    - name: Save cache
+      if: env.COMPOSER_CACHE_MISS
+      run: |
+        cp -r vendor /home/composer-cache/vendor/$hash
