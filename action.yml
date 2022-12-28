@@ -33,7 +33,7 @@ runs:
         hash: ${{ env.COMPOSER_HASH }}
       run: |
         # Remove existing vendor folder if it exists
-        if [ -d "/home/composer-cache/vendor/$hash/vendor" ]
+        if [ -d "vendor" ]
         then
           echo "Found existing vendor folder, removing"
           rm -rf vendor
@@ -41,8 +41,6 @@ runs:
         
         echo "Restore vendor folder from cache"
         cp -r /home/composer-cache/vendor/$hash vendor
-        
-        ls vendor/
 
     - name: Composer install
       shell: bash
