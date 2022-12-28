@@ -64,7 +64,7 @@ runs:
     - name: Composer install
       shell: bash
       run: |
-        composer install
+        composer install ${{ inputs.composer_install_flags }}
 
     - name: Save cache
       shell: bash
