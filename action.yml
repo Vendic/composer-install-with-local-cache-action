@@ -35,9 +35,11 @@ runs:
         # Remove existing vendor folder if it exists
         if [ -d "/home/composer-cache/vendor/$hash/vendor" ]
         then
+          echo "Found existing vendor folder, removing"
           rm -rf vendor
         fi
         
+        echo "Restore vendor folder from cache"
         cp -r /home/composer-cache/vendor/$hash vendor
 
     - name: Composer install
