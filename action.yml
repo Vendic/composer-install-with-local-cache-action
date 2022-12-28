@@ -41,6 +41,8 @@ runs:
         
         echo "Restore vendor folder from cache"
         cp -r /home/composer-cache/vendor/$hash vendor
+        
+        ls vendor/
 
     - name: Composer install
       shell: bash
