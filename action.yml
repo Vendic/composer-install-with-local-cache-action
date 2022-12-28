@@ -21,21 +21,9 @@ runs:
         then
           echo "Cache MISS!"
           echo "COMPOSER_CACHE_MISS=true" >> $GITHUB_ENV
-        
-          composer install
-          cp -r vendor /home/composer-cache/vendor/$hash
         else
           echo "Cache HIT!"
           echo "COMPOSER_CACHE_HIT=true" >> $GITHUB_ENV
-        
-          # Remove existing vendor folder if it exists
-          if [ -d "/home/composer-cache/vendor/$hash/vendor" ]
-          then
-            rm -rf vendor
-          fi
-        
-          cp -r /home/composer-cache/vendor/$hash vendor
-          composer install
         fi
 
     - name: Restore cache
