@@ -4,14 +4,15 @@ runs:
   using: "composite"
   steps:
     - name: Create vendor cache folder
+      shell: bash
       run: |
         if [ ! -d "/home/composer-cache/vendor" ]
         then
           mkdir /home/composer-cache/vendor
         fi
-      shell: bash
 
     - name: Check for cache hit/miss
+      shell: bash
       run: |
         hash="${{ hashFiles('composer.json', 'composer.lock') }}"
         echo "COMPOSER_HASH=$hash" >> $GITHUB_ENV
@@ -38,6 +39,7 @@ runs:
         fi
 
     - name: Restore cache
+      shell: bash
       if: env.COMPOSER_CACHE_HIT
       env:
         hash: ${{ env.COMPOSER_HASH }}
@@ -51,10 +53,12 @@ runs:
         cp -r /home/composer-cache/vendor/$hash vendor
 
     - name: Composer install
+      shell: bash
       run: |
         composer install
 
     - name: Save cache
+      shell: bash
       if: env.COMPOSER_CACHE_MISS
       run: |
         cp -r vendor /home/composer-cache/vendor/$hash
