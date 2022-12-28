@@ -1,23 +1,41 @@
 name: 'Composer install action'
 description: 'Composer install with cache'
+
+env:
+  cache_bust: v1
+
+inputs:
+  composer_install_flags:
+    required: false
+    default: ''
+    description: "Flags that will be added to the composer install command"
+
+  cache_dir:
+    required: true
+    description: Directory that will hold the cached data.
+
 runs:
   using: "composite"
   steps:
     - name: Create vendor cache folder
+      env:
+        cache_dir: ${{ inputs.cache_dir }}
       shell: bash
       run: |
-        if [ ! -d "/home/composer-cache/vendor" ]
+        if [ ! -d "$cache_dir" ]
         then
-          mkdir /home/composer-cache/vendor
+          mkdir $cache_dir
         fi
 
     - name: Check for cache hit/miss
       shell: bash
+      env:
+        cache_dir: ${{ inputs.cache_dir }}
       run: |
-        hash="${{ hashFiles('composer.json', 'composer.lock') }}"
+        hash="${{ env.cache_bust }}_${{ hashFiles('composer.json', 'composer.lock') }}"
         echo "COMPOSER_HASH=$hash" >> $GITHUB_ENV
         
-        if [ ! -d "/home/composer-cache/vendor/$hash" ]
+        if [ ! -d "$cache_dir/$hash" ]
         then
           echo "Cache MISS!"
           echo "COMPOSER_CACHE_MISS=true" >> $GITHUB_ENV
@@ -31,6 +49,7 @@ runs:
       if: env.COMPOSER_CACHE_HIT
       env:
         hash: ${{ env.COMPOSER_HASH }}
+        cache_dir: ${{ inputs.cache_dir }}
       run: |
         # Remove existing vendor folder if it exists
         if [ -d "vendor" ]
@@ -40,7 +59,7 @@ runs:
         fi
         
         echo "Restore vendor folder from cache"
-        cp -r /home/composer-cache/vendor/$hash vendor
+        cp -r $cache_dir/$hash vendor
 
     - name: Composer install
       shell: bash
@@ -50,5 +69,8 @@ runs:
     - name: Save cache
       shell: bash
       if: env.COMPOSER_CACHE_MISS
+      env:
+        hash: ${{ env.COMPOSER_HASH }}
+        cache_dir: ${{ inputs.cache_dir }}
       run: |
-        cp -r vendor /home/composer-cache/vendor/$hash
+        cp -r vendor $cache_dir/$hash
