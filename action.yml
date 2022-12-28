@@ -1,9 +1,6 @@
 name: 'Composer install action'
 description: 'Composer install with cache'
 
-env:
-  cache_bust: v1
-
 inputs:
   composer_install_flags:
     required: false
@@ -13,6 +10,11 @@ inputs:
   cache_dir:
     required: true
     description: Directory that will hold the cached data.
+
+  hash_prefix:
+    required: false
+    default: 1
+    description: Hash prefix, usefull for testing if you want to bust the cache.
 
 runs:
   using: "composite"
@@ -32,7 +34,7 @@ runs:
       env:
         cache_dir: ${{ inputs.cache_dir }}
       run: |
-        hash="${{ env.cache_bust }}_${{ hashFiles('composer.json', 'composer.lock') }}"
+        hash="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
         echo "COMPOSER_HASH=$hash" >> $GITHUB_ENV
         
         if [ ! -d "$cache_dir/$hash" ]
