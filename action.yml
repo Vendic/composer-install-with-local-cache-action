@@ -75,4 +75,8 @@ runs:
         hash: ${{ env.COMPOSER_HASH }}
         cache_dir: ${{ inputs.cache_dir }}
       run: |
-        cp -r vendor $cache_dir/$hash
+        if [ ! -d "$cache_dir/$hash" ]
+        then
+          cp -r vendor $cache_dir/$hash
+        fi
+        
