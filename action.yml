@@ -20,49 +20,24 @@ runs:
   using: "composite"
   steps:
     - name: Create vendor cache folder
-      env:
-        cache_dir: ${{ inputs.cache_dir }}
       shell: bash
-      run: |
-        if [ ! -d "$cache_dir" ]
-        then
-          mkdir $cache_dir
-        fi
+      run: mkdir -p "${{ inputs.cache_dir }}"
 
-    - name: Check for cache hit/miss
+    - name: Restore cache if found
       shell: bash
-      env:
-        cache_dir: ${{ inputs.cache_dir }}
       run: |
-        hash="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
-        echo "COMPOSER_HASH=$hash" >> $GITHUB_ENV
-        
-        if [ ! -d "$cache_dir/$hash" ]
-        then
-          echo "Cache MISS!"
-          echo "COMPOSER_CACHE_MISS=true" >> $GITHUB_ENV
-        else
-          echo "Cache HIT!"
-          echo "COMPOSER_CACHE_HIT=true" >> $GITHUB_ENV
-        fi
-
-    - name: Restore cache
-      shell: bash
-      if: env.COMPOSER_CACHE_HIT
-      env:
-        hash: ${{ env.COMPOSER_HASH }}
-        cache_dir: ${{ inputs.cache_dir }}
-      run: |
-        # Remove existing vendor folder if it exists
-        if [ -d "vendor" ]
-        then
-          echo "Found existing vendor folder, removing"
+        HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
+        COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tgz"
+        echo "COMPOSER_CACHE=${COMPOSER_CACHE}" >> $GITHUB_ENV        
+        if [ -e "${COMPOSER_CACHE}" ]; then        
+          echo "Cache HIT, restoring vendor folder from cache"
           rm -rf vendor
+          touch -a "${COMPOSER_CACHE}"          
+          tar -xpzf "${COMPOSER_CACHE}"
+        else
+          echo "Cache MISS"
         fi
         
-        echo "Restore vendor folder from cache"
-        cp -r $cache_dir/$hash vendor
-
     - name: Composer install
       shell: bash
       run: |
@@ -70,13 +45,9 @@ runs:
 
     - name: Save cache
       shell: bash
-      if: env.COMPOSER_CACHE_MISS
-      env:
-        hash: ${{ env.COMPOSER_HASH }}
-        cache_dir: ${{ inputs.cache_dir }}
       run: |
-        if [ ! -d "$cache_dir/$hash" ]
+        if [ ! -f "${COMPOSER_CACHE}" ]
         then
-          cp -r vendor $cache_dir/$hash
+          tar -cpzf ${COMPOSER_CACHE} vendor
         fi
         
