@@ -40,11 +40,15 @@ runs:
         echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
         echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
         echo "composer_cache=${COMPOSER_CACHE}" >> $GITHUB_OUTPUT
-        if [ -e "${COMPOSER_CACHE}" ]; then        
-          echo "Cache HIT, restoring vendor folder from cache"
+        if [ -e "${COMPOSER_CACHE}" ]; then
+          echo "Cache HIT, attempting to restore vendor folder from cache..."
           rm -rf vendor
-          touch -a "${COMPOSER_CACHE}"          
-          tar -xpzf "${COMPOSER_CACHE}"
+
+          # Try extracting; if extraction fails, remove the corrupted cache
+          if ! tar -xpzf "${COMPOSER_CACHE}"; then
+            echo "Cache extraction failed, removing corrupted cache..."
+            rm -f "${COMPOSER_CACHE}"
+          fi
         else
           echo "Cache MISS"
         fi
@@ -54,10 +58,17 @@ runs:
       run: |
         composer install ${{ inputs.composer_install_options }}
 
-    - name: Save cache
+    - name: Save cache (and validate)
       shell: bash
       run: |
-        if [ ! -f "${{ steps.restore-cache.outputs.composer_cache }}" ]
-        then
+        # Only create the cache if it doesn't exist or was removed due to corruption
+        if [ ! -f "${{ steps.restore-cache.outputs.composer_cache }}" ]; then
+          echo "Creating new cache..."
           tar -cpzf ${{ steps.restore-cache.outputs.composer_cache }} vendor
-        fi
+
+          echo "Validating newly created cache tarball..."
+          if ! tar -tzf ${{ steps.restore-cache.outputs.composer_cache }} > /dev/null; then
+            echo "New cache tarball is invalid, removing it..."
+            rm -f ${{ steps.restore-cache.outputs.composer_cache }}
+          fi
+        fi 
