@@ -1,29 +1,3 @@
-name: 'Composer install action'
-description: 'Composer install with cache'
-
-inputs:
-  composer_install_options:
-    required: false
-    default: '--prefer-dist --no-interaction'
-    description: "Options that will be added to the composer install command"
-
-  cache_dir:
-    required: true
-    description: Directory that will hold the cached data.
-
-  hash_prefix:
-    required: false
-    default: 1
-    description: Hash prefix, useful for testing if you want to bust the cache.
-
-outputs:
-  cache_hash:
-    description: 'The hash used for caching.'
-    value: ${{ steps.restore-cache.outputs.cache_hash }}
-  cache_dir:
-    description: 'The directory used for caching.'
-    value: ${{ steps.restore-cache.outputs.cache_dir }}
-
 runs:
   using: "composite"
   steps:
@@ -32,23 +6,16 @@ runs:
       run: mkdir -p "${{ inputs.cache_dir }}"
 
     - name: Restore cache if found
-      id: restore-cache
       shell: bash
       run: |
         HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
         COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tgz"
-        echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
-        echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
-        echo "composer_cache=${COMPOSER_CACHE}" >> $GITHUB_OUTPUT
-        if [ -e "${COMPOSER_CACHE}" ]; then
-          echo "Cache HIT, attempting to restore vendor folder from cache..."
+        echo "COMPOSER_CACHE=${COMPOSER_CACHE}" >> $GITHUB_ENV        
+        if [ -e "${COMPOSER_CACHE}" ]; then        
+          echo "Cache HIT, restoring vendor folder from cache"
           rm -rf vendor
-
-          # Try extracting; if extraction fails, remove the corrupted cache
-          if ! tar -xpzf "${COMPOSER_CACHE}"; then
-            echo "Cache extraction failed, removing corrupted cache..."
-            rm -f "${COMPOSER_CACHE}"
-          fi
+          touch -a "${COMPOSER_CACHE}"          
+          tar -xpzf "${COMPOSER_CACHE}"
         else
           echo "Cache MISS"
         fi
@@ -61,14 +28,14 @@ runs:
     - name: Save cache (and validate)
       shell: bash
       run: |
-        # Only create the cache if it doesn't exist or was removed due to corruption
-        if [ ! -f "${{ steps.restore-cache.outputs.composer_cache }}" ]; then
-          echo "Creating new cache..."
-          tar -cpzf ${{ steps.restore-cache.outputs.composer_cache }} vendor
-
+        if [ ! -f "${COMPOSER_CACHE}" ]; then
+          mkdir -p "$(dirname "${COMPOSER_CACHE}")"
+          tar -cpzf "${COMPOSER_CACHE}" vendor
+        
           echo "Validating newly created cache tarball..."
-          if ! tar -tzf ${{ steps.restore-cache.outputs.composer_cache }} > /dev/null; then
+          if ! tar -tzf "${COMPOSER_CACHE}" > /dev/null; then
             echo "New cache tarball is invalid, removing it..."
-            rm -f ${{ steps.restore-cache.outputs.composer_cache }}
+            rm -f "${COMPOSER_CACHE}"
+            exit 1
           fi
-        fi 
+        fi
