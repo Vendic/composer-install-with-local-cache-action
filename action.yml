@@ -1,3 +1,29 @@
+name: 'Composer install action'
+description: 'Composer install with cache'
+
+inputs:
+  composer_install_options:
+    required: false
+    default: '--prefer-dist --no-interaction'
+    description: "Options that will be added to the composer install command"
+
+  cache_dir:
+    required: true
+    description: Directory that will hold the cached data.
+
+  hash_prefix:
+    required: false
+    default: 1
+    description: Hash prefix, useful for testing if you want to bust the cache.
+
+outputs:
+  cache_hash:
+    description: 'The hash used for caching.'
+    value: ${{ steps.restore-cache.outputs.cache_hash }}
+  cache_dir:
+    description: 'The directory used for caching.'
+    value: ${{ steps.restore-cache.outputs.cache_dir }}
+
 runs:
   using: "composite"
   steps:
