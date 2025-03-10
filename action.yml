@@ -32,16 +32,24 @@ runs:
       run: mkdir -p "${{ inputs.cache_dir }}"
 
     - name: Restore cache if found
+      id: restore-cache
       shell: bash
       run: |
         HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
         COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tgz"
-        echo "COMPOSER_CACHE=${COMPOSER_CACHE}" >> $GITHUB_ENV        
-        if [ -e "${COMPOSER_CACHE}" ]; then        
+        echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
+        echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
+        echo "composer_cache=${COMPOSER_CACHE}" >> $GITHUB_OUTPUT
+        echo "COMPOSER_CACHE=${COMPOSER_CACHE}" >> $GITHUB_ENV
+        if [ -e "${COMPOSER_CACHE}" ]; then
           echo "Cache HIT, restoring vendor folder from cache"
           rm -rf vendor
-          touch -a "${COMPOSER_CACHE}"          
-          tar -xpzf "${COMPOSER_CACHE}"
+          touch -a "${COMPOSER_CACHE}" 
+          # Try extracting; if extraction fails, remove the corrupted cache
+          if ! tar -xpzf "${COMPOSER_CACHE}"; then
+            echo "Cache extraction failed, removing corrupted cache..."
+            rm -f "${COMPOSER_CACHE}"
+          fi
         else
           echo "Cache MISS"
         fi
@@ -56,6 +64,7 @@ runs:
       run: |
         if [ ! -f "${COMPOSER_CACHE}" ]; then
           mkdir -p "$(dirname "${COMPOSER_CACHE}")"
+          echo "Creating new cache..."
           tar -cpzf "${COMPOSER_CACHE}" vendor
         
           echo "Validating newly created cache tarball..."
