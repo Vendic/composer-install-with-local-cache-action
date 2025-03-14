@@ -4,7 +4,7 @@ description: 'Composer install with cache'
 inputs:
   composer_install_options:
     required: false
-    default: '--prefer-dist --no-interaction'
+    default: '--prefer-dist --no-interaction --ignore-platform-req=ext-soap --ignore-platform-req=ext-bcmath --ignore-platform-req=ext-gd'
     description: "Options that will be added to the composer install command"
 
   cache_dir:
