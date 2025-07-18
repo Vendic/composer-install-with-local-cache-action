@@ -49,6 +49,7 @@ runs:
           if ! tar -xpzf "${COMPOSER_CACHE}"; then
             echo "Cache extraction failed, removing corrupted cache..."
             rm -f "${COMPOSER_CACHE}"
+            rm -rf vendor
           fi
         else
           echo "Cache MISS"
