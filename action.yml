@@ -37,9 +37,11 @@ runs:
       run: |
         HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
         COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tgz"
+        LOCK_FILE="${COMPOSER_CACHE}.lock"
         echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
         echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
         echo "composer_cache=${COMPOSER_CACHE}" >> $GITHUB_OUTPUT
+        echo "lock_file=${LOCK_FILE}" >> $GITHUB_OUTPUT
         if [ -e "${COMPOSER_CACHE}" ]; then
           echo "Cache HIT, attempting to restore vendor folder from cache..."
           rm -rf vendor
@@ -49,9 +51,13 @@ runs:
             echo "Cache extraction failed, removing corrupted cache..."
             rm -f "${COMPOSER_CACHE}"
             rm -rf vendor
+            echo "cache_miss=true" >> $GITHUB_OUTPUT
+          else
+            echo "cache_miss=false" >> $GITHUB_OUTPUT
           fi
         else
           echo "Cache MISS"
+          echo "cache_miss=true" >> $GITHUB_OUTPUT
         fi
 
     - name: Composer install
@@ -60,16 +66,51 @@ runs:
         composer install ${{ inputs.composer_install_options }}
 
     - name: Save cache (and validate)
+      if: steps.restore-cache.outputs.cache_miss == 'true'
       shell: bash
       run: |
-        # Only create the cache if it doesn't exist or was removed due to corruption
-        if [ ! -f "${{ steps.restore-cache.outputs.composer_cache }}" ]; then
-          echo "Creating new cache..."
-          tar -cpzf ${{ steps.restore-cache.outputs.composer_cache }} vendor
+        CACHE_FILE="${{ steps.restore-cache.outputs.composer_cache }}"
+        LOCK_FILE="${{ steps.restore-cache.outputs.lock_file }}"
+        
+        # Use flock to ensure only one process creates the cache at a time
+        if ! flock -n 200 2>/dev/null; then
+          echo "Another process is creating the cache, skipping..."
+          exit 0
+        fi 200>"$LOCK_FILE"
+        
+        # Got lock - check if cache needs to be created
+        if [ -f "$CACHE_FILE" ]; then
+          echo "Cache already exists"
+          exec 200>&-
+          rm -f "$LOCK_FILE"
+          exit 0
+        fi
+        
+        echo "Creating new cache..."
+        if ! tar -cpzf "$CACHE_FILE" vendor; then
+          echo "Failed to create cache tarball"
+          rm -f "$CACHE_FILE"
+          exec 200>&-
+          rm -f "$LOCK_FILE"
+          exit 1
+        fi
+        
+        echo "Validating newly created cache tarball..."
+        if ! tar -tzf "$CACHE_FILE" > /dev/null; then
+          echo "New cache tarball is invalid, removing it..."
+          rm -f "$CACHE_FILE"
+        fi
+        
+        # Release lock and cleanup
+        exec 200>&-
+        rm -f "$LOCK_FILE"
 
-          echo "Validating newly created cache tarball..."
-          if ! tar -tzf ${{ steps.restore-cache.outputs.composer_cache }} > /dev/null; then
-            echo "New cache tarball is invalid, removing it..."
-            rm -f ${{ steps.restore-cache.outputs.composer_cache }}
-          fi
+    - name: Cleanup lock file
+      if: always()
+      shell: bash
+      run: |
+        LOCK_FILE="${{ steps.restore-cache.outputs.lock_file }}"
+        if [ -f "$LOCK_FILE" ]; then
+          echo "Removing stale lock file..."
+          rm -f "$LOCK_FILE"
         fi 
