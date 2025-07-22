@@ -87,12 +87,17 @@ runs:
         fi
         
         echo "Creating new cache..."
-        if ! tar -cpzf "$CACHE_FILE" vendor; then
-          echo "Failed to create cache tarball"
-          rm -f "$CACHE_FILE"
+        # Create in temp location first to avoid partial file issues
+        TEMP_CACHE="${CACHE_FILE}.tmp.$$"
+        if tar -cpzf "$TEMP_CACHE" vendor && mv "$TEMP_CACHE" "$CACHE_FILE"; then
+          echo "Cache created successfully"
+        else
+          echo "::warning title=Cache Creation Failed::Failed to create cache tarball - continuing without cache."
+          echo "Warning: Failed to create cache tarball - continuing without cache"
+          rm -f "$TEMP_CACHE" "$CACHE_FILE"
           exec 200>&-
           rm -f "$LOCK_FILE"
-          exit 1
+          exit 0
         fi
         
         echo "Validating newly created cache tarball..."
