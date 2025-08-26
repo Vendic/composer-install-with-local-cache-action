@@ -65,7 +65,7 @@ runs:
           rm -rf vendor
 
           # Try extracting; if extraction fails, remove the corrupted cache
-          if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -xpf "${COMPOSER_CACHE}"; then
+          if ! zstd -dc "${COMPOSER_CACHE}" | tar -xpf -; then
             echo "Cache extraction failed, removing corrupted cache..."
             rm -f "${COMPOSER_CACHE}"
             rm -rf vendor
@@ -105,16 +105,28 @@ runs:
         fi
         
         echo "Creating new cache..."
-        if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -cpf "$CACHE_FILE" vendor; then
-          echo "Failed to create cache tarball"
-          rm -f "$CACHE_FILE"
+        TEMP_TAR="${CACHE_FILE}.tmp.tar"
+        
+        # Step 1: Create uncompressed tar first
+        if ! tar -cpf "$TEMP_TAR" vendor; then
+          echo "Failed to create tar archive"
+          rm -f "$TEMP_TAR"
+          exec 200>&-
+          rm -f "$LOCK_FILE"
+          exit 1
+        fi
+        
+        # Step 2: Compress with zstd separately
+        if ! zstd -${{ inputs.zstd_compression_level }} -T0 --rm "$TEMP_TAR" -o "$CACHE_FILE"; then
+          echo "Failed to compress cache tarball"
+          rm -f "$CACHE_FILE" "$TEMP_TAR"
           exec 200>&-
           rm -f "$LOCK_FILE"
           exit 1
         fi
         
         echo "Validating newly created cache tarball..."
-        if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -tf "$CACHE_FILE" > /dev/null; then
+        if ! zstd -t "$CACHE_FILE" > /dev/null 2>&1; then
           echo "New cache tarball is invalid, removing it..."
           rm -f "$CACHE_FILE"
         fi
