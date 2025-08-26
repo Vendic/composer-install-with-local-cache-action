@@ -16,6 +16,11 @@ inputs:
     default: 1
     description: Hash prefix, useful for testing if you want to bust the cache.
 
+  zstd_compression_level:
+    required: false
+    default: 1
+    description: zstd compression level (1-19, 1=fastest, 19=best compression)
+
 outputs:
   cache_hash:
     description: 'The hash used for caching.'
@@ -27,6 +32,19 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Check for zstd installation
+      shell: bash
+      run: |
+        if ! command -v zstd &> /dev/null; then
+          echo "ERROR: zstd is not installed or not in PATH."
+          echo "Please install zstd on your runner:"
+          echo "  Ubuntu/Debian: apt-get install zstd"
+          echo "  CentOS/RHEL: yum install zstd"
+          echo "  macOS: brew install zstd"
+          exit 1
+        fi
+        echo "zstd is available: $(zstd --version)"
+
     - name: Create vendor cache folder
       shell: bash
       run: mkdir -p "${{ inputs.cache_dir }}"
@@ -36,7 +54,7 @@ runs:
       shell: bash
       run: |
         HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
-        COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tgz"
+        COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tar.zst"
         LOCK_FILE="${COMPOSER_CACHE}.lock"
         echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
         echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
@@ -47,7 +65,7 @@ runs:
           rm -rf vendor
 
           # Try extracting; if extraction fails, remove the corrupted cache
-          if ! tar -xpzf "${COMPOSER_CACHE}"; then
+          if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -xpf "${COMPOSER_CACHE}"; then
             echo "Cache extraction failed, removing corrupted cache..."
             rm -f "${COMPOSER_CACHE}"
             rm -rf vendor
@@ -87,7 +105,7 @@ runs:
         fi
         
         echo "Creating new cache..."
-        if ! tar -cpzf "$CACHE_FILE" vendor; then
+        if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -cpf "$CACHE_FILE" vendor; then
           echo "Failed to create cache tarball"
           rm -f "$CACHE_FILE"
           exec 200>&-
@@ -96,7 +114,7 @@ runs:
         fi
         
         echo "Validating newly created cache tarball..."
-        if ! tar -tzf "$CACHE_FILE" > /dev/null; then
+        if ! tar -I "zstd -${{ inputs.zstd_compression_level }} -T0" -tf "$CACHE_FILE" > /dev/null; then
           echo "New cache tarball is invalid, removing it..."
           rm -f "$CACHE_FILE"
         fi
