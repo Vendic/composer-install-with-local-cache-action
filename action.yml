@@ -117,7 +117,7 @@ runs:
         fi
         
         # Step 2: Compress with zstd separately
-        if ! zstd -${{ inputs.zstd_compression_level }} -T0 --rm "$TEMP_TAR" -o "$CACHE_FILE"; then
+        if ! zstd -${{ inputs.zstd_compression_level }} -T0 -f --rm "$TEMP_TAR" -o "$CACHE_FILE"; then
           echo "Failed to compress cache tarball"
           rm -f "$CACHE_FILE" "$TEMP_TAR"
           exec 200>&-
