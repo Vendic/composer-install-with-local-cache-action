@@ -7,14 +7,10 @@ inputs:
     default: '--prefer-dist --no-interaction --ignore-platform-req=ext-soap --ignore-platform-req=ext-bcmath --ignore-platform-req=ext-gd'
     description: "Options that will be added to the composer install command"
 
-  cache_dir:
-    required: true
-    description: Directory that will hold the cached data.
-
-  hash_prefix:
+  cache_prefix:
     required: false
-    default: 1
-    description: Hash prefix, useful for testing if you want to bust the cache.
+    default: 'composer-vendor'
+    description: Cache key prefix, useful for cache versioning.
 
   zstd_compression_level:
     required: false
@@ -22,12 +18,12 @@ inputs:
     description: zstd compression level (1-19, 1=fastest, 19=best compression)
 
 outputs:
-  cache_hash:
-    description: 'The hash used for caching.'
-    value: ${{ steps.restore-cache.outputs.cache_hash }}
-  cache_dir:
-    description: 'The directory used for caching.'
-    value: ${{ steps.restore-cache.outputs.cache_dir }}
+  cache_key:
+    description: 'The cache key used for caching.'
+    value: ${{ steps.cache-restore.outputs.cache-primary-key || steps.cache-restore.outputs.cache-matched-key }}
+  cache_hit:
+    description: 'Whether the cache was hit or not.'
+    value: ${{ steps.cache-restore.outputs.cache-hit }}
 
 runs:
   using: "composite"
@@ -45,37 +41,32 @@ runs:
         fi
         echo "zstd is available: $(zstd --version)"
 
-    - name: Create vendor cache folder
-      shell: bash
-      run: mkdir -p "${{ inputs.cache_dir }}"
-
-    - name: Restore cache if found
-      id: restore-cache
+    - name: Generate cache key
+      id: cache-key
       shell: bash
       run: |
-        HASH="${{ inputs.hash_prefix }}_${{ hashFiles('composer.json', 'composer.lock') }}"
-        COMPOSER_CACHE="${{ inputs.cache_dir }}/${HASH}.tar.zst"
-        LOCK_FILE="${COMPOSER_CACHE}.lock"
-        echo "cache_hash=$HASH" >> $GITHUB_OUTPUT
-        echo "cache_dir=${{ inputs.cache_dir }}" >> $GITHUB_OUTPUT
-        echo "composer_cache=${COMPOSER_CACHE}" >> $GITHUB_OUTPUT
-        echo "lock_file=${LOCK_FILE}" >> $GITHUB_OUTPUT
-        if [ -e "${COMPOSER_CACHE}" ]; then
-          echo "Cache HIT, attempting to restore vendor folder from cache..."
-          rm -rf vendor
+        CACHE_KEY="${{ inputs.cache_prefix }}-${{ hashFiles('composer.json', 'composer.lock') }}"
+        echo "cache-key=$CACHE_KEY" >> $GITHUB_OUTPUT
+        echo "Generated cache key: $CACHE_KEY"
 
-          # Try extracting; if extraction fails, remove the corrupted cache
-          if ! zstd -dc "${COMPOSER_CACHE}" | tar -xpf -; then
-            echo "Cache extraction failed, removing corrupted cache..."
-            rm -f "${COMPOSER_CACHE}"
-            rm -rf vendor
-            echo "cache_miss=true" >> $GITHUB_OUTPUT
-          else
-            echo "cache_miss=false" >> $GITHUB_OUTPUT
-          fi
+    - name: Restore vendor cache
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: vendor-cache.tar.zst
+        key: ${{ steps.cache-key.outputs.cache-key }}
+
+    - name: Extract vendor from cache
+      if: steps.cache-restore.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "Cache HIT, extracting vendor folder from cache..."
+        rm -rf vendor
+        if ! zstd -dc vendor-cache.tar.zst | tar -xpf -; then
+          echo "Cache extraction failed, will run composer install"
+          rm -rf vendor
         else
-          echo "Cache MISS"
-          echo "cache_miss=true" >> $GITHUB_OUTPUT
+          echo "Successfully restored vendor from cache"
         fi
 
     - name: Composer install
@@ -83,64 +74,39 @@ runs:
       run: |
         composer install ${{ inputs.composer_install_options }}
 
-    - name: Save cache (and validate)
-      if: steps.restore-cache.outputs.cache_miss == 'true'
+    - name: Create cache archive
+      if: steps.cache-restore.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        CACHE_FILE="${{ steps.restore-cache.outputs.composer_cache }}"
-        LOCK_FILE="${{ steps.restore-cache.outputs.lock_file }}"
+        echo "Creating vendor cache archive..."
+        TEMP_TAR="vendor-cache.tmp.tar"
         
-        # Use flock to ensure only one process creates the cache at a time
-        if ! flock -n 200 2>/dev/null; then
-          echo "Another process is creating the cache, skipping..."
-          exit 0
-        fi 200>"$LOCK_FILE"
-        
-        # Got lock - check if cache needs to be created
-        if [ -f "$CACHE_FILE" ]; then
-          echo "Cache already exists"
-          exec 200>&-
-          rm -f "$LOCK_FILE"
-          exit 0
-        fi
-        
-        echo "Creating new cache..."
-        TEMP_TAR="${CACHE_FILE}.tmp.tar"
-        
-        # Step 1: Create uncompressed tar first
+        # Create uncompressed tar first
         if ! tar -cpf "$TEMP_TAR" vendor; then
           echo "Failed to create tar archive"
           rm -f "$TEMP_TAR"
-          exec 200>&-
-          rm -f "$LOCK_FILE"
           exit 1
         fi
         
-        # Step 2: Compress with zstd separately
-        if ! zstd -${{ inputs.zstd_compression_level }} -T0 -f --rm "$TEMP_TAR" -o "$CACHE_FILE"; then
+        # Compress with zstd
+        if ! zstd -${{ inputs.zstd_compression_level }} -T0 -f --rm "$TEMP_TAR" -o vendor-cache.tar.zst; then
           echo "Failed to compress cache tarball"
-          rm -f "$CACHE_FILE" "$TEMP_TAR"
-          exec 200>&-
-          rm -f "$LOCK_FILE"
+          rm -f vendor-cache.tar.zst "$TEMP_TAR"
           exit 1
         fi
         
-        echo "Validating newly created cache tarball..."
-        if ! zstd -t "$CACHE_FILE" > /dev/null 2>&1; then
-          echo "New cache tarball is invalid, removing it..."
-          rm -f "$CACHE_FILE"
+        # Validate the compressed file
+        if ! zstd -t vendor-cache.tar.zst > /dev/null 2>&1; then
+          echo "Cache tarball validation failed"
+          rm -f vendor-cache.tar.zst
+          exit 1
         fi
         
-        # Release lock and cleanup
-        exec 200>&-
-        rm -f "$LOCK_FILE"
+        echo "Successfully created vendor cache archive"
 
-    - name: Cleanup lock file
-      if: always()
-      shell: bash
-      run: |
-        LOCK_FILE="${{ steps.restore-cache.outputs.lock_file }}"
-        if [ -f "$LOCK_FILE" ]; then
-          echo "Removing stale lock file..."
-          rm -f "$LOCK_FILE"
-        fi 
+    - name: Save vendor cache
+      if: steps.cache-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: vendor-cache.tar.zst
+        key: ${{ steps.cache-key.outputs.cache-key }} 
