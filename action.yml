@@ -45,7 +45,7 @@ runs:
       id: cache-key
       shell: bash
       run: |
-        CACHE_KEY="${{ inputs.cache_prefix }}-${{ hashFiles('composer.json', 'composer.lock') }}"
+        CACHE_KEY="${{ inputs.cache_prefix }}-${{ hashFiles('composer.json', 'composer.lock', 'dev/patches/**/*.patch') }}"
         echo "cache-key=$CACHE_KEY" >> $GITHUB_OUTPUT
         echo "Generated cache key: $CACHE_KEY"
 
